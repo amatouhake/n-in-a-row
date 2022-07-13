@@ -1,174 +1,246 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import numpy as np
-from tkinter import messagebox
+from math import floor
 from itertools import product
 from string import ascii_uppercase, digits, punctuation
+from typing import Any, Callable
 
 
-def init_screen_start():
-    global n_player
-
-    def start(event: tk.Event):
-        global n_player
-        n_player = int(entry_n.get())
-        init_screen_game()
-
-    screen_start = tk.Tk()
-    screen_start.title("n目並べ")
-    screen_start.geometry("256x256")
-
-    frame_n = tk.Frame(screen_start)
-    frame_n.pack()
-
-    label_n = tk.Label(frame_n, text="n")
-    label_n.grid(row=0, column=0)
-
-    entry_n = tk.Entry(frame_n)
-    entry_n.insert(tk.END, n_player)
-    entry_n.grid(row=0, column=1)
-
-    button_start = tk.Button(screen_start, text="スタート")
-    button_start.pack()
-    button_start.bind("<1>", start)
-
-    screen_start.mainloop()
+class Config:
+    signs = "OX"
+    shape = [4, 4, 4, 4]
+    n_in_a_row = 4
+    n_player = 2
+    n_row = 1
+    space_size = 64
+    border_size = 1
+    show_coordinates = True
 
 
-# setup
-player = 1
+class Main(ttk.Frame):
+    def __init__(self, *args: tuple[Any], **kargs: dict[str, Any]) -> None:
+        super().__init__(*args, **kargs)
 
-# config
-n_in_a_row = 4
-n_player = 2
-shape = (2, 3, 4)
+        main = ttk.Frame(self, padding=100)
+        main.pack()
 
-show_coordinates = True
+        button = ttk.Button(main, text="スタート")
+        button.bind("<1>", self.start_game)
+        button.pack()
 
-space_size = 64
+    def start_game(self, event: tk.Event = None) -> None:
+        Config.signs += "".join(
+            set((ascii_uppercase + digits + punctuation).strip(Config.signs))
+        )
 
-signs = "OX"
-signs += "".join(set((ascii_uppercase + digits + punctuation).strip(signs)))
+        Config.space_size = floor(min(
+            Config.space_size,
+            self.winfo_screenwidth() // np.product(Config.shape[::2]),
+            self.winfo_screenheight() // np.product(Config.shape[1::2])
+        ) * 0.8)
+
+        self.destroy()
+        Game(self.master).pack()
 
 
-def init_screen_game():
-    def generate_frame_spaces(frame_spaces: list, master: tk.Misc, shape: tuple, coordinates: tuple):
-        def generate_frame_space(row: int, column: int):
-            bd = np.ceil((shape_length + 1) / 2)
-            frame_space = tk.Frame(
-                master, width=space_size + bd, height=space_size + bd, bd=bd, relief="ridge"
-            )
-            frame_space.grid(row=row, column=column)
-            frame_space.bind("<1>", on_left_click_frame_space)
-            return frame_space
+class Game(ttk.Frame):
+    def __init__(self, *args: tuple[Any], **kargs: dict[str, Any]) -> None:
+        super().__init__(*args, **kargs)
 
-        shape_length = len(shape)
+        self.player = 1
+        self.row = dict(zip(range(Config.n_player), [0] * (Config.n_player)))
 
-        if shape_length > 3:
-            for row in range(shape[-1]):
-                for column in range(shape[-2]):
-                    frame = tk.Frame(master, width=space_size * np.prod(
-                        shape[:-4:-2]), height=space_size * np.prod(shape[:-3:-2]), bd=1, relief="ridge")
-                    frame.grid(row=row, column=column)
-                    generate_frame_spaces(
-                        frame_spaces, frame, shape[:-2], (column, row) + coordinates)
+        self.board = Board(self)
+        self.board.pack()
 
-        elif shape_length == 3:
-            for column in range(shape[2]):
-                frame = tk.Frame(
-                    master, width=space_size * shape[2], height=space_size * shape[1], bd=1, relief="ridge")
-                frame.grid(row=0, column=column)
-                generate_frame_spaces(
-                    frame_spaces, frame, shape[:2], (column,) + coordinates)
+        self.status = Status(self)
+        self.status.pack()
 
-        elif shape_length == 2:
-            for row in range(shape[1]):
-                for column in range(shape[0]):
-                    frame_space = generate_frame_space(row, column)
-                    frame_space.coordinates = (column, row) + coordinates
-                    frame_spaces.append(frame_space)
+    def start_main(self, event: tk.Event = None) -> None:
+        self.destroy()
+        Main(self.master).pack()
 
-        elif shape_length == 1:
-            for column in range(shape[0]):
-                frame_space = generate_frame_space(0, column)
-                frame_space.coordinates = (column,) + coordinates
-                frame_spaces.append(frame_space)
+    def on_left_click_space(self, event: tk.Event) -> None:
+        space = event.widget
+        sign = Config.signs[self.player - 1]
+        space.player = self.player
 
-        return frame_spaces
+        label = ttk.Label(space, anchor="center", background="light gray",
+                          text=sign, border=Config.border_size, relief="solid")
+        label.place(x=-1, y=-1,
+                    width=Config.space_size, height=Config.space_size)
+        space.label = label
 
-    def set_title():
-        screen_game.title(
-            f"{len(shape)}次元{n_in_a_row}目並べ{n_player}人プレイ（{player}人目の{signs[player - 1]}のターン）")
+        if(Config.show_coordinates):
+            print(sign, space.coordinates)
 
-    def on_wm_delete_window():
-        global player
-        player = 1
-        screen_game.destroy()
-
-    def on_left_click_frame_space(event: tk.Event):
-        global player
-        frame_space = event.widget
-        coordinates = frame_space.coordinates
-        sign = signs[player - 1]
-
-        spaces[coordinates] = player
-        label = tk.Label(frame_space, text=sign, bg="light gray")
-        label.place(width=space_size, height=space_size)
-        frame_space.label = label
-
-        exit_flag = False
-
-        if(show_coordinates):
-            print(coordinates)
-
-        for i in range(n_in_a_row):
+        for i in range(Config.n_in_a_row):
             def generate_coordinate(dimension):
-                stop_plus = coordinates[dimension] + i + 1
-                stop_minus = coordinates[dimension] - i - 1
+                stop_plus = space.coordinates[dimension] + i + 1
+                stop_minus = space.coordinates[dimension] - i - 1
                 return [
-                    list(range(stop_plus - n_in_a_row, stop_plus)),
-                    [coordinates[dimension]] * n_in_a_row,
-                    list(range(stop_minus + n_in_a_row, stop_minus, -1))
+                    list(range(stop_plus - Config.n_in_a_row, stop_plus)),
+                    [space.coordinates[dimension]] * Config.n_in_a_row,
+                    list(range(stop_minus + Config.n_in_a_row, stop_minus, -1))
                 ]
 
             coordinate_products = list(product(
-                *[generate_coordinate(d) for d in range(len(shape))]
+                *[generate_coordinate(d) for d in range(len(Config.shape))]
             ))
 
             for coordinate_product in coordinate_products[:int((len(coordinate_products) - 1) / 2)]:
                 coordinates_set = set(zip(*coordinate_product))
-                if (coordinates_set <= set(zip(*np.asarray(spaces == player).nonzero()))):
-                    exit_flag = True
+                if (coordinates_set <= {s.coordinates for s in np.ravel(self.board.spaces) if s.player == space.player}):
+                    self.row[self.player - 1] += 1
                     for coordinates in coordinates_set:
-                        frame_space_lined: tk.Frame = next(
-                            (f for f in frame_spaces if f.coordinates == coordinates), None)
-                        frame_space_lined.label["bg"] = "light sky blue"
+                        self.board.spaces[coordinates].label["background"] = "light sky blue"
 
-        if exit_flag:
-            messagebox.showinfo("終了", f"{sign}の勝ちです！")
-            on_wm_delete_window()
+        if self.row[self.player - 1] == Config.n_row:
+            messagebox.showinfo("終了", f"{sign}の勝ち")
+            self.start_main()
         else:
-            player = 1 if player == n_player else player + 1
-            set_title()
+            self.status.player_value_turn_off()
+            self.player = 1 if self.player == Config.n_player else self.player + 1
+            self.status.player_value_turn_on()
 
-    screen_game = tk.Tk()
-    screen_game.resizable(False, False)
-    screen_game.protocol("WM_DELETE_WINDOW", on_wm_delete_window)
-    set_title()
 
-    global space_size
-    spacewidth = screen_game.winfo_screenwidth() // np.product(shape[::2])
-    spaceheight = screen_game.winfo_screenheight() // np.product(shape[1::2])
-    spacesize = spacewidth if spacewidth < spaceheight else spaceheight
-    space_size = spacesize if spacesize < space_size else space_size
-    space_size *= 0.9
+class Status(ttk.Frame):
+    def __init__(self, *args: tuple[Any], **kargs: dict[str, Any]) -> None:
+        super().__init__(*args, **kargs, padding=10)
 
-    spaces = np.zeros(shape)
-    frame_spaces = generate_frame_spaces([], screen_game, shape, ())
+        def generate_player_value_label(i):
+            label = ttk.Label(self, text=Config.signs[i], padding=5)
+            label.grid(row=0, column=i + 1)
+            return label
 
-    screen_game.mainloop()
+        self.player_key = ttk.Label(self, text="プレイヤー")
+        self.player_value = [
+            generate_player_value_label(i)
+            for i in range(Config.n_player)
+        ]
+        self.player_value_turn_on()
+
+        self.player_key.grid(row=0, column=0)
+
+        self.n_in_a_row_key = ttk.Label(self, text="n目並べ")
+        self.n_in_a_row_value = ttk.Label(self, text=f"{Config.n_in_a_row}")
+
+        self.n_in_a_row_key.grid(row=1, column=0)
+        self.n_in_a_row_value.grid(row=1, column=1)
+
+    def player_value_turn_on(self):
+        self.player_value[self.master.player - 1]["relief"] = "solid"
+        self.player_value[self.master.player - 1]["background"] = "light gray"
+
+    def player_value_turn_off(self):
+        self.player_value[self.master.player - 1]["relief"] = ""
+        self.player_value[self.master.player - 1]["background"] = ""
+
+
+class SpaceFrame(ttk.Frame):
+    def generate_spaces(self, shape: tuple, coordinates: tuple, callback: Callable[[Game, tk.Event], Any]) -> None:
+        shape_length = len(shape)
+        is_even = shape_length % 2 == 0
+
+        if shape_length > 2:
+            if is_even:
+                for row in range(shape[-1]):
+                    for column in range(shape[-2]):
+                        space_frame = SpaceFrame(
+                            self,
+                            width=Config.space_size * np.prod(shape[:-4:-2]),
+                            height=Config.space_size * np.prod(shape[:-3:-2]),
+                            border=Config.border_size,
+                            relief="solid"
+                        )
+                        space_frame.grid(row=row, column=column)
+                        for space in space_frame.generate_spaces(shape[:-2], (column, row) + coordinates, callback):
+                            yield space
+            else:
+                for column in range(shape[-1]):
+                    space_frame = SpaceFrame(
+                        self,
+                        width=Config.space_size * np.prod(shape[:-3:-2]),
+                        height=Config.space_size * np.prod(shape[:-2:-2]),
+                        border=Config.border_size,
+                        relief="solid"
+                    )
+                    space_frame.grid(row=0, column=column)
+                    for space in space_frame.generate_spaces(shape[:-1], (column,) + coordinates, callback):
+                        yield space
+        else:
+            if is_even:
+                for row in range(shape[-1]):
+                    for column in range(shape[-2]):
+                        space = Space(
+                            self,
+                            coordinates=(column, row) + coordinates,
+                            callback=callback,
+                            border=Config.border_size,
+                            relief="solid"
+                        )
+                        space.grid(row=row, column=column)
+                        yield space
+            else:
+                for column in range(shape[-1]):
+                    space = Space(
+                        self,
+                        coordinates=(column,) + coordinates,
+                        callback=callback,
+                        border=Config.border_size,
+                        relief="solid"
+                    )
+                    space.grid(row=0, column=column)
+                    yield space
+
+
+class Board(SpaceFrame):
+    def __init__(self, *args: tuple[Any], **kargs: dict[str, Any]) -> None:
+        super().__init__(*args, **kargs)
+        self._spaces = np.array(sorted(list(self.generate_spaces(
+            Config.shape, (), self.master.on_left_click_space
+        )), key=lambda x: x.coordinates)).reshape(Config.shape)
+
+    @property
+    def spaces(self):
+        return self._spaces
+
+
+class Space(ttk.Frame):
+    def __init__(self, *args: tuple[Any], coordinates: tuple, callback: Callable[[Game, tk.Event], Any], **kargs: dict[str, Any]) -> None:
+        super().__init__(*args, **kargs, width=Config.space_size, height=Config.space_size)
+        self._coordinates = coordinates
+        self._player = 0
+        self.bind("<1>", callback)
+
+    @property
+    def coordinates(self) -> tuple:
+        return self._coordinates
+
+    @property
+    def player(self) -> None:
+        return self._player
+
+    @player.setter
+    def player(self, player) -> None:
+        self._player = player
+
+    @property
+    def label(self) -> None:
+        return self._label
+
+    @label.setter
+    def label(self, label) -> None:
+        self._label = label
+
+
+def main() -> None:
+    root = tk.Tk()
+    root.title("n目並べ")
+    Main(root).pack()
+    root.mainloop()
 
 
 if __name__ == "__main__":
-    # init_screen_start()
-    init_screen_game()
+    main()
