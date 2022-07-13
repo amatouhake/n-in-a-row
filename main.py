@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 class Config:
     signs = "OX"
-    shape = [4, 4, 4, 4]
+    shape = [4, 4]
     n_in_a_row = 4
     n_player = 2
     n_row = 1
@@ -34,11 +34,13 @@ class Main(ttk.Frame):
             set((ascii_uppercase + digits + punctuation).strip(Config.signs))
         )
 
-        Config.space_size = floor(min(
+        Config.space_size = min(
             Config.space_size,
-            self.winfo_screenwidth() // np.product(Config.shape[::2]),
-            self.winfo_screenheight() // np.product(Config.shape[1::2])
-        ) * 0.8)
+            floor(min(
+                self.winfo_screenwidth() // np.product(Config.shape[::2]),
+                self.winfo_screenheight() // np.product(Config.shape[1::2])
+            ) * 0.8)
+        )
 
         self.destroy()
         Game(self.master).pack()
@@ -98,6 +100,9 @@ class Game(ttk.Frame):
 
         if self.row[self.player - 1] == Config.n_row:
             messagebox.showinfo("終了", f"{sign}の勝ち")
+            self.start_main()
+        elif len({s for s in np.ravel(self.board.spaces) if s.player == 0}) == 0:
+            messagebox.showinfo("終了", "引き分け")
             self.start_main()
         else:
             self.status.player_value_turn_off()
