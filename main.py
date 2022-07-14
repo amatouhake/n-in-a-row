@@ -20,12 +20,9 @@ class Config:
 
 class Main(ttk.Frame):
     def __init__(self, *args: tuple[Any], **kargs: dict[str, Any]) -> None:
-        super().__init__(*args, **kargs)
+        super().__init__(*args, **kargs, padding=100)
 
-        main = ttk.Frame(self, padding=100)
-        main.pack()
-
-        button = ttk.Button(main, text="スタート")
+        button = ttk.Button(self, text="スタート")
         button.bind("<1>", self.start_game)
         button.pack()
 
@@ -37,13 +34,16 @@ class Main(ttk.Frame):
         Config.space_size = min(
             Config.space_size,
             floor(min(
-                self.winfo_screenwidth() // np.product(Config.shape[::2]),
-                self.winfo_screenheight() // np.product(Config.shape[1::2])
+                self.winfo_screenwidth() / np.product(Config.shape[::2]),
+                self.winfo_screenheight() / np.product(Config.shape[1::2])
             ) * 0.8)
         )
 
-        self.destroy()
-        Game(self.master).pack()
+        if Config.n_player <= len(Config.signs):
+            self.destroy()
+            Game(self.master).pack()
+        else:
+            messagebox.showwarning("警告", "プレイヤーが多すぎます")
 
 
 class Game(ttk.Frame):
@@ -51,7 +51,7 @@ class Game(ttk.Frame):
         super().__init__(*args, **kargs)
 
         self.player = 1
-        self.row = dict(zip(range(Config.n_player), [0] * (Config.n_player)))
+        self.rows = dict(zip(range(Config.n_player), [0] * (Config.n_player)))
 
         self.board = Board(self)
         self.board.pack()
@@ -59,32 +59,49 @@ class Game(ttk.Frame):
         self.status = Status(self)
         self.status.pack()
 
+        button = ttk.Button(self, text="中断")
+        button.bind("<1>", self.start_main)
+        button.pack()
+
     def start_main(self, event: tk.Event = None) -> None:
         self.destroy()
         Main(self.master).pack()
 
     def on_left_click_space(self, event: tk.Event) -> None:
-        space = event.widget
         sign = Config.signs[self.player - 1]
-        space.player = self.player
+        space = event.widget
 
-        label = ttk.Label(space, anchor="center", background="light gray",
-                          text=sign, border=Config.border_size, relief="solid")
-        label.place(x=-1, y=-1,
-                    width=Config.space_size, height=Config.space_size)
-        space.label = label
+        space.player = self.player
+        space.label = ttk.Label(
+            space,
+            anchor="center",
+            background="light gray",
+            text=sign,
+            border=Config.border_size,
+            relief="solid"
+        )
+        space.label.place(
+            x=-1,
+            y=-1,
+            width=Config.space_size,
+            height=Config.space_size
+        )
+
+        raveled_spaces = np.ravel(self.board.spaces)
 
         if(Config.show_coordinates):
             print(sign, space.coordinates)
 
         for i in range(Config.n_in_a_row):
             def generate_coordinate(dimension):
-                stop_plus = space.coordinates[dimension] + i + 1
-                stop_minus = space.coordinates[dimension] - i - 1
+                coordinate = space.coordinates[dimension]
+                diff = i + 1
+                stop_plus = coordinate + diff
+                stop_minus = coordinate - diff
                 return [
-                    list(range(stop_plus - Config.n_in_a_row, stop_plus)),
+                    range(stop_plus - Config.n_in_a_row, stop_plus),
                     [space.coordinates[dimension]] * Config.n_in_a_row,
-                    list(range(stop_minus + Config.n_in_a_row, stop_minus, -1))
+                    range(stop_minus + Config.n_in_a_row, stop_minus, -1)
                 ]
 
             coordinate_products = list(product(
@@ -93,40 +110,32 @@ class Game(ttk.Frame):
 
             for coordinate_product in coordinate_products[:int((len(coordinate_products) - 1) / 2)]:
                 coordinates_set = set(zip(*coordinate_product))
-                if (coordinates_set <= {s.coordinates for s in np.ravel(self.board.spaces) if s.player == space.player}):
-                    self.row[self.player - 1] += 1
+                if coordinates_set <= {s.coordinates for s in raveled_spaces if s.player == space.player}:
+                    self.rows[self.player - 1] += 1
                     for coordinates in coordinates_set:
                         self.board.spaces[coordinates].label["background"] = "light sky blue"
 
-        if self.row[self.player - 1] == Config.n_row:
+        if self.rows[self.player - 1] == Config.n_row:
             messagebox.showinfo("終了", f"{sign}の勝ち")
             self.start_main()
-        elif len({s for s in np.ravel(self.board.spaces) if s.player == 0}) == 0:
+        elif not [s for s in raveled_spaces if s.player == 0]:
             messagebox.showinfo("終了", "引き分け")
             self.start_main()
         else:
-            self.status.player_value_turn_off()
+            self.status.player_value.labels[self.player - 1].turn_off()
             self.player = 1 if self.player == Config.n_player else self.player + 1
-            self.status.player_value_turn_on()
+            self.status.player_value.labels[self.player - 1].turn_on()
 
 
 class Status(ttk.Frame):
     def __init__(self, *args: tuple[Any], **kargs: dict[str, Any]) -> None:
         super().__init__(*args, **kargs, padding=10)
 
-        def generate_player_value_label(i):
-            label = ttk.Label(self, text=Config.signs[i], padding=5)
-            label.grid(row=0, column=i + 1)
-            return label
-
         self.player_key = ttk.Label(self, text="プレイヤー")
-        self.player_value = [
-            generate_player_value_label(i)
-            for i in range(Config.n_player)
-        ]
-        self.player_value_turn_on()
+        self.player_value = PlayerValue(self)
 
         self.player_key.grid(row=0, column=0)
+        self.player_value.grid(row=0, column=1)
 
         self.n_in_a_row_key = ttk.Label(self, text="n目並べ")
         self.n_in_a_row_value = ttk.Label(self, text=f"{Config.n_in_a_row}")
@@ -134,13 +143,61 @@ class Status(ttk.Frame):
         self.n_in_a_row_key.grid(row=1, column=0)
         self.n_in_a_row_value.grid(row=1, column=1)
 
-    def player_value_turn_on(self):
-        self.player_value[self.master.player - 1]["relief"] = "solid"
-        self.player_value[self.master.player - 1]["background"] = "light gray"
 
-    def player_value_turn_off(self):
-        self.player_value[self.master.player - 1]["relief"] = ""
-        self.player_value[self.master.player - 1]["background"] = ""
+class PlayerValue(ttk.Frame):
+    def __init__(self, *args, **kargs) -> None:
+        super().__init__(*args, **kargs)
+        self._labels = [
+            PlayerValueLabel(self, player=i)
+            for i in range(Config.n_player)
+        ]
+        self._labels[0].turn_on()
+
+    @property
+    def labels(self):
+        return self._labels
+
+
+class PlayerValueLabel(ttk.Label):
+    def __init__(self, *args: tuple[Any], player: int, **kargs: dict[str, Any]) -> None:
+        super().__init__(*args, **kargs, text=Config.signs[player], padding=5)
+        self.grid(row=0, column=player)
+
+    def turn_on(self):
+        self["relief"] = "solid"
+        self["background"] = "light gray"
+
+    def turn_off(self):
+        self["relief"] = ""
+        self["background"] = ""
+
+
+class Space(ttk.Frame):
+    def __init__(self, *args: tuple[Any], coordinates: tuple, callback: Callable[[Game, tk.Event], Any], **kargs: dict[str, Any]) -> None:
+        super().__init__(*args, **kargs, width=Config.space_size, height=Config.space_size)
+        self._coordinates = coordinates
+        self._player = 0
+        self.bind("<1>", callback)
+
+    @property
+    def coordinates(self) -> tuple:
+        return self._coordinates
+
+    @property
+    def player(self) -> None:
+        return self._player
+
+    @player.setter
+    def player(self, player) -> None:
+        self._player = player
+
+    @property
+    def label(self) -> None:
+        return self._label
+
+    @label.setter
+    def label(self, label) -> None:
+        self._label = label
 
 
 class SpaceFrame(ttk.Frame):
@@ -203,46 +260,19 @@ class SpaceFrame(ttk.Frame):
 class Board(SpaceFrame):
     def __init__(self, *args: tuple[Any], **kargs: dict[str, Any]) -> None:
         super().__init__(*args, **kargs)
-        self._spaces = np.array(sorted(list(self.generate_spaces(
+        self._spaces = np.reshape(sorted(list(self.generate_spaces(
             Config.shape, (), self.master.on_left_click_space
-        )), key=lambda x: x.coordinates)).reshape(Config.shape)
+        )), key=lambda x: x.coordinates), Config.shape)
 
     @property
     def spaces(self):
         return self._spaces
 
 
-class Space(ttk.Frame):
-    def __init__(self, *args: tuple[Any], coordinates: tuple, callback: Callable[[Game, tk.Event], Any], **kargs: dict[str, Any]) -> None:
-        super().__init__(*args, **kargs, width=Config.space_size, height=Config.space_size)
-        self._coordinates = coordinates
-        self._player = 0
-        self.bind("<1>", callback)
-
-    @property
-    def coordinates(self) -> tuple:
-        return self._coordinates
-
-    @property
-    def player(self) -> None:
-        return self._player
-
-    @player.setter
-    def player(self, player) -> None:
-        self._player = player
-
-    @property
-    def label(self) -> None:
-        return self._label
-
-    @label.setter
-    def label(self, label) -> None:
-        self._label = label
-
-
 def main() -> None:
     root = tk.Tk()
     root.title("n目並べ")
+    root.resizable(width=False, height=False)
     Main(root).pack()
     root.mainloop()
 
